@@ -10,24 +10,51 @@ st.title("🫶🏻mwah")
 # Streamlit serves files in 'static' at root URL
 # So 'static/movies/foo.mp4' is accessible at 'app/static/movies/foo.mp4'
 # But internally we need to list files from the physical path.
-MOVIE_DIR = os.path.join("static", "movies")
-
-if not os.path.exists(MOVIE_DIR):
-    os.makedirs(MOVIE_DIR)
-    st.error(f"Directory '{MOVIE_DIR}' created. Please add some movie files to it!")
-    st.stop()
-
-files = [f for f in os.listdir(MOVIE_DIR) if os.path.isfile(os.path.join(MOVIE_DIR, f))]
-
 # Filter for BROWSER-SUPPORTED video extensions
-# Browsers do NOT support .mkv or .avi
 video_extensions = {'.mp4', '.webm', '.ogg', '.mov'}
-movie_files = [f for f in files if os.path.splitext(f)[1].lower() in video_extensions]
 
+# Configuration
+USE_R2 = st.sidebar.checkbox("Use Cloudflare R2", value=False)
+
+if USE_R2:
+    import boto3
+    R2_BUCKET = st.secrets.get("R2_BUCKET", "your-bucket-name")
+    R2_ENDPOINT = st.secrets.get("R2_ENDPOINT", "your-endpoint")
+    R2_ACCESS_KEY = st.secrets.get("R2_ACCESS_KEY")
+    R2_SECRET_KEY = st.secrets.get("R2_SECRET_KEY")
+    R2_PUBLIC_URL = st.secrets.get("R2_PUBLIC_URL", "") # e.g. https://pub-xxx.r2.dev
+
+    s3 = boto3.client(
+        service_name='s3',
+        endpoint_url=R2_ENDPOINT,
+        aws_access_key_id=R2_ACCESS_KEY,
+        aws_secret_access_key=R2_SECRET_KEY,
+        region_name='auto'
+    )
+
+    def list_r2_movies():
+        response = s3.list_objects_v2(Bucket=R2_BUCKET)
+        files = [obj['Key'] for obj in response.get('Contents', [])]
+        return [f for f in files if any(f.lower().endswith(ext) for ext in video_extensions)]
+
+    movie_files = list_r2_movies()
+else:
+    MOVIE_DIR = os.path.join("static", "movies")
+    if not os.path.exists(MOVIE_DIR):
+        os.makedirs(MOVIE_DIR)
+    
+    files = [f for f in os.listdir(MOVIE_DIR) if os.path.isfile(os.path.join(MOVIE_DIR, f))]
+    movie_files = [f for f in files if os.path.splitext(f)[1].lower() in video_extensions]
 
 selected_movie = st.sidebar.selectbox("Select a Movie", movie_files)
 
 if selected_movie:
+    if USE_R2:
+        video_url = f"{R2_PUBLIC_URL}/{urllib.parse.quote(selected_movie)}"
+        is_hls = "false" # Default to false for direct R2 links unless we handle HLS folders
+        st.subheader(f"Now Playing (R2): {selected_movie}")
+    else:
+        # Existing local logic
         # Check if HLS playlist exists in a dedicated folder
         base_name = os.path.splitext(selected_movie)[0]
         # Sanitize folder name to be safe
@@ -81,9 +108,9 @@ if selected_movie:
             is_hls = "false"
         
         st.subheader(f"Now Playing: {selected_movie}")
-        
-        # Plyr HTML Code with HLS support
-        plyr_html = f"""
+    
+    # Plyr HTML Code with HLS support
+    plyr_html = f"""
         <!DOCTYPE html>
         <html>
         <head>
@@ -138,5 +165,5 @@ if selected_movie:
         </html>
         """
         
-        # Embed the player with a flexible height
-        components.html(plyr_html, height=700, scrolling=False)
+    # Embed the player with a flexible height
+    components.html(plyr_html, height=700, scrolling=False)
