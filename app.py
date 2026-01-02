@@ -6,11 +6,6 @@ st.set_page_config(page_title="mwah", page_icon="🫶🏻", layout="wide")
 
 st.title("🫶🏻mwah")
 
-# Directory containing movies (now inside static)
-# Streamlit serves files in 'static' at root URL
-# So 'static/movies/foo.mp4' is accessible at 'app/static/movies/foo.mp4'
-# But internally we need to list files from the physical path.
-# Filter for BROWSER-SUPPORTED video extensions
 video_extensions = {'.mp4', '.webm', '.ogg', '.mov'}
 
 # Movie directory
@@ -24,8 +19,6 @@ movie_files = [f for f in files if os.path.splitext(f)[1].lower() in video_exten
 selected_movie = st.sidebar.selectbox("Select a Movie", movie_files)
 
 if selected_movie:
-    # Existing local logic
-    # Check if HLS playlist exists in a dedicated folder
     base_name = os.path.splitext(selected_movie)[0]
     # Sanitize folder name to be safe
     safe_base_name = "".join([c for c in base_name if c.isalnum() or c in (' ', '-', '_')]).strip()
@@ -39,14 +32,14 @@ if selected_movie:
         # Play HLS stream
         # URL encode the folder and filename
         encoded_dir = urllib.parse.quote(hls_dir_name)
-        video_url = f"app/static/movies/{encoded_dir}/playlist.m3u8"
+        video_url = f"gefat/static/movies/{encoded_dir}/playlist.m3u8"
         is_hls = "true"
     else:
         # Offer conversion
-        st.warning("⚠️ This file is not optimized for streaming. It may buffer.")
+        st.warning("This file is not optimized for streaming. It may buffer.")
         
-        if st.button("🚀 Optimize for Streaming (Create HLS)"):
-            with st.spinner("Converting... This may take a while (approx 5-10 mins for a movie)..."):
+        if st.button("Optimize for Streaming (Create HLS)"):
+            with st.spinner("Converting"):
                 # Create HLS directory
                 if not os.path.exists(hls_dir_path):
                     os.makedirs(hls_dir_path)
