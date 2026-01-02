@@ -5,6 +5,7 @@ import streamlit.components.v1 as components
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 import threading
 import socket
+import base64
 
 st.set_page_config(page_title="mwah", page_icon="🫶🏻", layout="wide")
 
@@ -39,9 +40,17 @@ def start_http_server():
             continue
     return None
 
+# Check if running on Streamlit Cloud
+is_streamlit_cloud = os.environ.get('STREAMLIT_SERVER_HEADLESS') == 'true'
+
 server_port = start_http_server()
 if server_port:
     st.session_state.server_port = server_port
+    with st.sidebar:
+        if is_streamlit_cloud:
+            st.warning("⚠️ Note: For Streamlit Cloud, HLS streaming requires additional setup. See documentation.")
+        else:
+            st.info(f"📡 Server running on port `{server_port}`\n\nAccess at: `http://localhost:{server_port}`")
 else:
     st.error("Could not start file server")
 
