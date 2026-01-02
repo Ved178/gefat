@@ -2,6 +2,9 @@ import streamlit as st
 import os
 from pathlib import Path
 import streamlit.components.v1 as components
+from http.server import HTTPServer, SimpleHTTPRequestHandler
+import threading
+import socket
 
 st.set_page_config(page_title="mwah", page_icon="🫶🏻", layout="wide")
 
@@ -13,6 +16,34 @@ video_extensions = {'.mp4', '.webm', '.ogg', '.mov'}
 MOVIE_DIR = Path(__file__).parent / "static" / "movies"
 if not MOVIE_DIR.exists():
     MOVIE_DIR.mkdir(parents=True, exist_ok=True)
+
+# Start a simple HTTP server to serve HLS files on localhost
+@st.cache_resource
+def start_http_server():
+    """Start a simple HTTP server to serve static files"""
+    class MyHTTPRequestHandler(SimpleHTTPRequestHandler):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, directory=str(MOVIE_DIR), **kwargs)
+        
+        def log_message(self, format, *args):
+            pass  # Suppress logging
+    
+    # Find an available port
+    for port in range(8001, 8050):
+        try:
+            server = HTTPServer(('127.0.0.1', port), MyHTTPRequestHandler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            return port
+        except OSError:
+            continue
+    return None
+
+server_port = start_http_server()
+if server_port:
+    st.session_state.server_port = server_port
+else:
+    st.error("Could not start file server")
 
 files = [f.name for f in MOVIE_DIR.iterdir() if f.is_file()]
 movie_files = [f for f in files if Path(f).suffix.lower() in video_extensions]
@@ -30,11 +61,10 @@ if selected_movie:
     import urllib.parse
     
     if os.path.exists(hls_playlist_path):
-        # Play HLS stream
-        # For Streamlit Cloud: use relative path from the app root
-        # For local: use relative path that works
+        # Play HLS stream via local HTTP server
         encoded_dir = urllib.parse.quote(hls_dir_name)
-        video_url = f"static/movies/{encoded_dir}/playlist.m3u8"
+        server_port = st.session_state.get('server_port', 8001)
+        video_url = f"http://localhost:{server_port}/{encoded_dir}/playlist.m3u8"
         is_hls = "true"
     else:
         # Offer conversion
