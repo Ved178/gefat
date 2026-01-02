@@ -6,6 +6,8 @@ from http.server import HTTPServer, SimpleHTTPRequestHandler
 import threading
 import socket
 import base64
+import subprocess
+import time
 
 st.set_page_config(page_title="mwah", page_icon="🫶🏻", layout="wide")
 
@@ -46,11 +48,35 @@ is_streamlit_cloud = os.environ.get('STREAMLIT_SERVER_HEADLESS') == 'true'
 server_port = start_http_server()
 if server_port:
     st.session_state.server_port = server_port
+    
+    # Set up ngrok for public tunneling
+    @st.cache_resource
+    def setup_ngrok():
+        """Setup ngrok tunnel for public access"""
+        try:
+            import pyngrok
+            from pyngrok import ngrok
+            
+            # Set ngrok auth token from environment (if available)
+            ngrok_token = os.environ.get('NGROK_AUTHTOKEN')
+            if ngrok_token:
+                ngrok.set_auth_token(ngrok_token)
+            
+            # Create tunnel
+            public_url = ngrok.connect(server_port, "http")
+            return str(public_url).replace("http://", "").replace("https://", "").strip()
+        except Exception as e:
+            st.warning(f"ngrok setup failed: {e}\n\nTo use ngrok, install: `pip install pyngrok` and set NGROK_AUTHTOKEN")
+            return None
+    
+    ngrok_url = setup_ngrok()
+    
     with st.sidebar:
-        if is_streamlit_cloud:
-            st.warning("⚠️ Note: For Streamlit Cloud, HLS streaming requires additional setup. See documentation.")
+        if ngrok_url:
+            st.success(f"✅ Public URL: `{ngrok_url}`")
+            st.info(f"📡 Local port: `{server_port}`")
         else:
-            st.info(f"📡 Server running on port `{server_port}`\n\nAccess at: `http://localhost:{server_port}`")
+            st.info(f"📡 Server running on port `{server_port}`\n\nLocal access: `http://localhost:{server_port}`")
 else:
     st.error("Could not start file server")
 
@@ -70,10 +96,16 @@ if selected_movie:
     import urllib.parse
     
     if os.path.exists(hls_playlist_path):
-        # Play HLS stream via local HTTP server
+        # Play HLS stream via HTTP server (local or ngrok)
         encoded_dir = urllib.parse.quote(hls_dir_name)
-        server_port = st.session_state.get('server_port', 8001)
-        video_url = f"http://localhost:{server_port}/{encoded_dir}/playlist.m3u8"
+        
+        # Try to use ngrok URL if available, otherwise use localhost
+        if 'ngrok_url' in st.session_state and st.session_state.ngrok_url:
+            base_url = st.session_state.ngrok_url
+        else:
+            base_url = f"http://localhost:{server_port}"
+        
+        video_url = f"{base_url}/{encoded_dir}/playlist.m3u8"
         is_hls = "true"
     else:
         # Offer conversion
