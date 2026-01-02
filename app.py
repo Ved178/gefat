@@ -103,22 +103,31 @@ if server_port:
 else:
     st.error("Could not start file server")
 
+# List movie sources - either raw video files OR HLS directories
 files = [f.name for f in MOVIE_DIR.iterdir() if f.is_file()]
 movie_files = [f for f in files if Path(f).suffix.lower() in video_extensions]
 
-selected_movie = st.sidebar.selectbox("Select a Movie", movie_files)
+# Also check for HLS directories (those ending in _hls)
+hls_dirs = [d.name for d in MOVIE_DIR.iterdir() if d.is_dir() and d.name.endswith('_hls')]
+hls_movies = [d.replace('_hls', '') for d in hls_dirs]
 
-if selected_movie:
+# Combine both lists, prefer HLS if available
+all_movies = list(set(movie_files + hls_movies))
+all_movies.sort()
+
+selected_movie = st.sidebar.selectbox("Select a Movie", all_movies if all_movies else ["No movies found"])
+
+if selected_movie and selected_movie != "No movies found":
     base_name = os.path.splitext(selected_movie)[0]
     # Sanitize folder name to be safe
     safe_base_name = "".join([c for c in base_name if c.isalnum() or c in (' ', '-', '_')]).strip()
     hls_dir_name = f"{safe_base_name}_hls"
-    hls_dir_path = os.path.join(MOVIE_DIR, hls_dir_name)
-    hls_playlist_path = os.path.join(hls_dir_path, "playlist.m3u8")
+    hls_dir_path = MOVIE_DIR / hls_dir_name
+    hls_playlist_path = hls_dir_path / "playlist.m3u8"
     
     import urllib.parse
     
-    if os.path.exists(hls_playlist_path):
+    if hls_playlist_path.exists():
         # Play HLS stream via HTTP server (local or ngrok)
         # Try to use ngrok URL if available, otherwise use localhost
         if 'ngrok_url' in st.session_state and st.session_state.ngrok_url:
@@ -132,50 +141,52 @@ if selected_movie:
         video_url = f"{base_url}/{urllib.parse.quote(hls_dir_name)}/playlist.m3u8"
         is_hls = "true"
     else:
-        # Offer conversion
-        st.warning("This file is not optimized for streaming. It may buffer.")
-        
-        if st.button("Optimize for Streaming (Create HLS)"):
-            with st.spinner("Converting"):
-                # Create HLS directory
-                if not os.path.exists(hls_dir_path):
-                    os.makedirs(hls_dir_path)
+        # Check if raw video file exists
+        video_file_path = MOVIE_DIR / selected_movie
+        if video_file_path.exists():
+            # Offer conversion
+            st.warning("This file is not optimized for streaming. It may buffer.")
+            
+            if st.button("Optimize for Streaming (Create HLS)"):
+                with st.spinner("Converting"):
+                    # Create HLS directory
+                    if not hls_dir_path.exists():
+                        hls_dir_path.mkdir(parents=True, exist_ok=True)
+                        
+                    # FFmpeg command to convert to HLS
+                    cmd = [
+                        "ffmpeg", "-i", str(video_file_path),
+                        "-codec:", "copy", "-start_number", "0", 
+                        "-hls_time", "10", "-hls_list_size", "0", 
+                        "-f", "hls", str(hls_playlist_path)
+                    ]
                     
-                # FFmpeg command to convert to HLS
-                input_path = os.path.join(MOVIE_DIR, selected_movie)
-                output_path = hls_playlist_path
-                
-                # Basic HLS conversion command
-                cmd = [
-                    "ffmpeg", "-i", input_path,
-                    "-codec:", "copy", "-start_number", "0", 
-                    "-hls_time", "10", "-hls_list_size", "0", 
-                    "-f", "hls", output_path
-                ]
-                
-                try:
-                    import subprocess
-                    subprocess.run(cmd, check=True)
-                    st.success("Conversion Complete! Please refresh the page.")
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Conversion failed: {e}")
-                    st.error("Make sure FFmpeg is installed!")
+                    try:
+                        subprocess.run(cmd, check=True)
+                        st.success("Conversion Complete! Please refresh the page.")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Conversion failed: {e}")
+                        st.error("Make sure FFmpeg is installed!")
+            
+            # Fallback to direct MP4 play
+            video_url = f"{base_url}/{urllib.parse.quote(selected_movie)}"
+            is_hls = "false"
+        else:
+            st.error(f"Movie file not found: {selected_movie}")
+            video_url = None
+            is_hls = "false"
+    
+    if video_url:
+        st.subheader(f"Now Playing: {selected_movie}")
         
-        # Fallback to direct MP4 play
-        encoded_name = urllib.parse.quote(selected_movie)
-        video_url = f"app/static/movies/{encoded_name}"
-        is_hls = "false"
-    
-    st.subheader(f"Now Playing: {selected_movie}")
-    
-    # Plyr HTML Code with HLS support
-    plyr_html = f"""
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <link rel="stylesheet" href="https://cdn.plyr.io/3.7.8/plyr.css" />
-            <style>
+        # Plyr HTML Code with HLS support
+        plyr_html = f"""
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <link rel="stylesheet" href="https://cdn.plyr.io/3.7.8/plyr.css" />
+                <style>
                 body {{ margin: 0; background-color: #0e1117; display: flex; justify-content: center; align-items: center; height: 100vh; }}
                 .container {{ 
                     width: 100%; 
@@ -225,5 +236,5 @@ if selected_movie:
         </html>
         """
         
-    # Embed the player with a flexible height
-    components.html(plyr_html, height=700, scrolling=False)
+        # Embed the player with a flexible height
+        components.html(plyr_html, height=700, scrolling=False)
