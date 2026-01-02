@@ -152,10 +152,10 @@ cython_debug/
 # Streamlit
 .streamlit/secrets.toml
 
-# Video files (too large for GitHub)
+# Video files (too large for GitHub) - but allow HLS files
 *.mp4
 *.mkv
 *.mov
 *.webm
-*.ts
-*.m3u8
+!*.ts
+!*.m3u8
