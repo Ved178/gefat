@@ -23,18 +23,39 @@ if not MOVIE_DIR.exists():
 # Start a simple HTTP server to serve HLS files on localhost
 @st.cache_resource
 def start_http_server():
-    """Start a simple HTTP server to serve static files"""
-    class MyHTTPRequestHandler(SimpleHTTPRequestHandler):
+    """Start a simple HTTP server to serve static files with proper headers for HLS"""
+    class HLSHTTPRequestHandler(SimpleHTTPRequestHandler):
         def __init__(self, *args, **kwargs):
             super().__init__(*args, directory=str(MOVIE_DIR), **kwargs)
         
         def log_message(self, format, *args):
             pass  # Suppress logging
+        
+        def end_headers(self):
+            """Add CORS and caching headers for HLS streaming"""
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.send_header('Access-Control-Allow-Methods', 'GET, OPTIONS')
+            self.send_header('Access-Control-Allow-Headers', 'Content-Type, Range')
+            self.send_header('Cache-Control', 'no-cache, no-store, must-revalidate')
+            super().end_headers()
+        
+        def do_GET(self):
+            """Handle GET requests and disable directory listing"""
+            # Prevent directory listing - redirect to index.html or return 404
+            if self.path.endswith('/'):
+                self.send_error(404)
+                return
+            super().do_GET()
+        
+        def do_OPTIONS(self):
+            """Handle OPTIONS requests for CORS"""
+            self.send_response(200)
+            self.end_headers()
     
     # Find an available port
     for port in range(8001, 8050):
         try:
-            server = HTTPServer(('127.0.0.1', port), MyHTTPRequestHandler)
+            server = HTTPServer(('0.0.0.0', port), HLSHTTPRequestHandler)  # Listen on all interfaces for ngrok
             thread = threading.Thread(target=server.serve_forever, daemon=True)
             thread.start()
             return port
@@ -64,16 +85,18 @@ if server_port:
             
             # Create tunnel
             public_url = ngrok.connect(server_port, "http")
-            return str(public_url).replace("http://", "").replace("https://", "").strip()
+            return str(public_url).strip()  # Keep the full URL with protocol
         except Exception as e:
             st.warning(f"ngrok setup failed: {e}\n\nTo use ngrok, install: `pip install pyngrok` and set NGROK_AUTHTOKEN")
             return None
     
     ngrok_url = setup_ngrok()
+    st.session_state.ngrok_url = ngrok_url
     
     with st.sidebar:
         if ngrok_url:
-            st.success(f"✅ Public URL: `{ngrok_url}`")
+            st.success(f"✅ Public URL available")
+            st.code(ngrok_url, language="text")
             st.info(f"📡 Local port: `{server_port}`")
         else:
             st.info(f"📡 Server running on port `{server_port}`\n\nLocal access: `http://localhost:{server_port}`")
@@ -97,15 +120,16 @@ if selected_movie:
     
     if os.path.exists(hls_playlist_path):
         # Play HLS stream via HTTP server (local or ngrok)
-        encoded_dir = urllib.parse.quote(hls_dir_name)
-        
         # Try to use ngrok URL if available, otherwise use localhost
         if 'ngrok_url' in st.session_state and st.session_state.ngrok_url:
             base_url = st.session_state.ngrok_url
+            if not base_url.startswith('http'):
+                base_url = f"https://{base_url}"
         else:
+            server_port = st.session_state.get('server_port', 8001)
             base_url = f"http://localhost:{server_port}"
         
-        video_url = f"{base_url}/{encoded_dir}/playlist.m3u8"
+        video_url = f"{base_url}/{urllib.parse.quote(hls_dir_name)}/playlist.m3u8"
         is_hls = "true"
     else:
         # Offer conversion
