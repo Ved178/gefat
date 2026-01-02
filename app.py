@@ -1,5 +1,6 @@
 import streamlit as st
 import os
+from pathlib import Path
 import streamlit.components.v1 as components
 
 st.set_page_config(page_title="mwah", page_icon="🫶🏻", layout="wide")
@@ -13,13 +14,13 @@ st.title("🫶🏻mwah")
 # Filter for BROWSER-SUPPORTED video extensions
 video_extensions = {'.mp4', '.webm', '.ogg', '.mov'}
 
-# Movie directory
-MOVIE_DIR = os.path.join("static", "movies")
-if not os.path.exists(MOVIE_DIR):
-    os.makedirs(MOVIE_DIR)
+# Movie directory - use absolute path for reliability
+MOVIE_DIR = Path(__file__).parent / "static" / "movies"
+if not MOVIE_DIR.exists():
+    MOVIE_DIR.mkdir(parents=True, exist_ok=True)
 
-files = [f for f in os.listdir(MOVIE_DIR) if os.path.isfile(os.path.join(MOVIE_DIR, f))]
-movie_files = [f for f in files if os.path.splitext(f)[1].lower() in video_extensions]
+files = [f.name for f in MOVIE_DIR.iterdir() if f.is_file()]
+movie_files = [f for f in files if Path(f).suffix.lower() in video_extensions]
 
 selected_movie = st.sidebar.selectbox("Select a Movie", movie_files)
 
@@ -37,9 +38,10 @@ if selected_movie:
     
     if os.path.exists(hls_playlist_path):
         # Play HLS stream
-        # URL encode the folder and filename
+        # For Streamlit Cloud: use relative path from the app root
+        # For local: use relative path that works
         encoded_dir = urllib.parse.quote(hls_dir_name)
-        video_url = f"app/static/movies/{encoded_dir}/playlist.m3u8"
+        video_url = f"static/movies/{encoded_dir}/playlist.m3u8"
         is_hls = "true"
     else:
         # Offer conversion
